@@ -1,3 +1,4 @@
+const { ipcRenderer } = require('electron')
 const log = require('electron-log');
 log.transports.console.level = "info";
 log.transports.file.level = "info";
@@ -108,17 +109,99 @@ function getStatus() {
             lights[index].online = true;
             lights[index].on = json.state.on;
             lights[index].version = json.info.ver;
+            lights[index].preset = json.state.ps;
+            lights[index].brightness = json.state.bri;
             localStorage.setItem("lights", JSON.stringify(lights));
             showLights();
+            ipcRenderer.send('updateTrayMenu', lights);
         };
         xhr.onerror = function () {
             lights[index].online = false;
             localStorage.setItem("lights", JSON.stringify(lights));
             showLights();
+            ipcRenderer.send('updateTrayMenu', lights);
         }
         xhr.send();
     }
 }
+
+// get presets
+function getPresets() {
+    var lights = JSON.parse(localStorage.getItem("lights"));
+    for (let index = 0; index < lights.length; index++) {
+        const ip = lights[index].ip;
+
+        let xhr = new XMLHttpRequest();
+        xhr.open('GET', 'http://' + ip + "/presets.json", true);
+        xhr.onload = function () {
+            var json = JSON.parse(xhr.response);
+            lights[index].presets = Object.values(json).map((preset, index) => {
+              return {
+              name: preset.n,
+              icon: preset.ql
+            }});
+            localStorage.setItem("lights", JSON.stringify(lights));
+            //createPresetsTrayMenu();
+            ipcRenderer.send('updateTrayMenu', lights);
+        };
+        xhr.onerror = function () {
+        }
+        xhr.send();
+    }
+}
+
+function createPresetsTrayMenu() {
+  var lights = JSON.parse(localStorage.getItem("lights"));
+  var presetMenu = [];
+  for (let index = 0; index < lights.length; index++) {
+    //console.log(lights[index].presets);
+    if (lights[index].presets && lights[index].presets.length > 0) {
+      let hasQuickloads = false;
+      lights[index].presets.forEach((preset, i) => {
+        if (preset.icon) {
+          presetMenu.push({
+            label: (preset.icon ? (preset.icon + ' ') : '') + preset.name
+          });
+          hasQuickloads = true;
+        }
+      });
+
+      if (hasQuickloads) {
+        presetMenu.push({ type: 'separator' });
+      }
+    }
+  };
+  //console.log("1");
+  //ipcRenderer.send('createTrayMenu', presetMenu);
+  //console.log("2");
+}
+
+ipcRenderer.on('set-brightness', (event, ip, br) => {
+  let xhr = new XMLHttpRequest();
+  xhr.open('GET', 'http://' + ip + "/win&A=" + br, true);
+  xhr.onload = function () {
+    sync();
+  };
+  xhr.send();
+});
+
+ipcRenderer.on('set-preset', (event, ip, ps) => {
+  let xhr = new XMLHttpRequest();
+  xhr.open('GET', 'http://' + ip + "/win&PL=" + ps, true);
+  xhr.onload = function () {
+    sync();
+  };
+  xhr.send();
+});
+
+ipcRenderer.on('set-on-off', (event, ip, onOff) => {
+  let xhr = new XMLHttpRequest();
+  xhr.open('GET', 'http://' + ip + "/win&T=" + onOff, true);
+  xhr.onload = function () {
+    sync();
+  };
+  xhr.send();
+});
 
 // opens the WLED page and set the correct ip address to localstorage
 function goToWled(index) {
@@ -162,7 +245,16 @@ function remindLater() {
     localStorage.setItem('remindLaterTime', Date.now());
 }
 
+var syncCount = 5;
 function sync() {
+  syncCount++;
+
+  if (syncCount > 4) {
+    getPresets();
+    syncCount = 0;
+  } else {
     getStatus();
-    setTimeout(sync, 1000);
+  }
+
+  setTimeout(sync, 1000);
 }

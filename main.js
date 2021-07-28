@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray } = require('electron')
+const { app, BrowserWindow, Menu, Tray, ipcMain  } = require('electron')
 const path = require('path')
 const log = require('electron-log');
 
@@ -84,21 +84,10 @@ function createWorker() {
   workerWindow.loadFile('autostart.html');
 }
 
-// tray
-function createTray() {
-  log.debug("Create tray icon");
-  let iconFile;
-  let iconPath;
-  // tray icon for macOS
-  if (process.platform === 'darwin') {
-    iconFile = "trayIcon.png";
-  } else {
-    iconFile = "icon.png";
-  }
-  iconPath = path.join(iconDir, iconFile);
-  log.debug("Tray icon path: " + iconPath);
-  tray = new Tray(iconPath)
-  const contextMenu = Menu.buildFromTemplate([
+function createTrayMenu(appendMenu) {
+  menuTemplate = appendMenu || [];
+
+  menuTemplate = menuTemplate.concat([
     {
       label: 'Open', click: function () {
         win.show();
@@ -115,14 +104,81 @@ function createTray() {
         win.close();
       }
     },
-  ])
-  tray.setToolTip('WLED')
+  ]);
+
+  const contextMenu = Menu.buildFromTemplate(menuTemplate);
   tray.setContextMenu(contextMenu)
+}
+
+// tray
+function createTray() {
+  log.debug("Create tray icon");
+  let iconFile;
+  let iconPath;
+  // tray icon for macOS
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    iconFile = "trayIcon.png";
+  } else {
+    iconFile = "icon.png";
+  }
+  iconPath = path.join(iconDir, iconFile);
+  log.debug("Tray icon path: " + iconPath);
+  tray = new Tray(iconPath)
+
+
+  tray.setToolTip('WLED');
+  createTrayMenu();
 
   tray.on('click', function () {
     win.show();
   });
 }
+
+ipcMain.on('updateTrayMenu', (event, lights) => {
+  var presetMenu = [];
+  for (let index = 0; index < lights.length; index++) {
+    //console.log(lights[index].presets);
+    if (lights[index].online) {
+      presetMenu.push({
+        label: lights[index].name,
+        enabled: false,
+      });
+
+      // add brightness submenu
+      presetMenu.push({
+        label: 'Brightness: ' + (lights[index].on ? (Math.round(lights[index].brightness / 2.55) + '%') : 'OFF'),
+        submenu: [
+          { label: lights[index].on ? 'OFF' : 'ON',  click: () => win.webContents.send('set-on-off', lights[index].ip, 2)},
+          { label: '20%', click: () => win.webContents.send('set-brightness', lights[index].ip, 51)},
+          { label: '40%', click: () => win.webContents.send('set-brightness', lights[index].ip, 102)},
+          { label: '60%', click: () => win.webContents.send('set-brightness', lights[index].ip, 153)},
+          { label: '80%', click: () => win.webContents.send('set-brightness', lights[index].ip, 204)},
+          { label: '100%',click: () => win.webContents.send('set-brightness', lights[index].ip, 255)},
+        ]
+      });
+
+      // add presets menu
+      if (lights[index].presets && lights[index].presets.length > 0) {
+        lights[index].presets.forEach((preset, i) => {
+
+          // only include presets with quickload label
+          if (preset.icon) {
+            presetMenu.push({
+              label: (preset.icon ? (preset.icon + ' ') : '') + preset.name,
+              type: "checkbox",
+              checked: lights[index].preset == i,
+              click: () => win.webContents.send('set-preset', lights[index].ip, i),
+            });
+            hasQuickloads = true;
+          }
+        });
+
+        presetMenu.push({ type: 'separator' });
+      }
+    }
+  }
+  createTrayMenu(presetMenu);
+})
 
 // read settings from localstorage
 function loadSettings() {
