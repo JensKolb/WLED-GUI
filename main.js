@@ -68,6 +68,14 @@ function createWindow() {
       win.show()
     })
   }
+
+  // catch minimization and hide instead (if enabled)
+  win.on('minimize',function(event){
+    if (settings !== null && settings[3].value) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
 }
 
 // create hidden worker window
@@ -84,9 +92,86 @@ function createWorker() {
   workerWindow.loadFile('autostart.html');
 }
 
-function createTrayMenu(appendMenu) {
-  menuTemplate = appendMenu || [];
+// create tray menu and append WLED controls if available
+function createTrayMenu(lights) {
+  if (!tray) { return; }
 
+  var menuTemplate = [];
+
+  // create WLED control items
+  if (lights && lights.length > 0) {
+    for (let index = 0; index < lights.length; index++) {
+      //log.debug(lights[index].presets);
+
+      if (lights[index].online) {
+
+        // create name label
+        menuTemplate.push({
+          label: lights[index].name,
+          enabled: false,
+        });
+
+        // add brightness submenu
+        var brightnessMenu = [
+          {label: lights[index].on ? 'OFF' : 'ON',  click: () => win.webContents.send('set-on-off', lights[index].ip, 2)}
+        ];
+        for (let perc = 10; perc <= 100; perc += 10) {
+          let label = perc + '%';
+          let br = Math.round(perc * 2.55);
+          brightnessMenu.push({
+            label: label,
+            click: () => win.webContents.send('set-brightness', lights[index].ip, br)
+          });
+        }
+        menuTemplate.push({
+          label: 'Brightness: ' + (lights[index].on ? (Math.round(lights[index].brightness / 2.55) + '%') : 'OFF'),
+          submenu: brightnessMenu,
+        });
+
+        // add presets menu
+        var presetsMenu = [];
+        if (lights[index].presets && lights[index].presets.length > 1) {
+          lights[index].presets.forEach((preset, i) => {
+
+            // add quickload presets directly to main menu
+            if (preset && preset.icon) {
+              menuTemplate.push({
+                label: (preset.icon + ' ' + preset.name),
+                type: "checkbox",
+                checked: lights[index].preset === i,
+                click: () => win.webContents.send('set-preset', lights[index].ip, i),
+              });
+            }
+
+            // add preset to presets submenu
+            if (preset && preset.name) {
+              presetsMenu.push({
+                label: (preset.name),
+                type: "checkbox",
+                checked: lights[index].preset === i,
+                click: () => win.webContents.send('set-preset', lights[index].ip, i),
+              });
+            }
+          });
+
+          presetsMenu.sort((a, b) => {
+            if(a.label < b.label) { return -1; }
+            if(a.label > b.label) { return 1; }
+            return 0;
+          });
+
+          menuTemplate.push({
+            label: "Presets",
+            submenu: presetsMenu
+          });
+        }
+
+        menuTemplate.push({ type: 'separator' });
+      }
+    }
+  }
+
+  // add basic application controls
   menuTemplate = menuTemplate.concat([
     {
       label: 'Open', click: function () {
@@ -99,13 +184,14 @@ function createTrayMenu(appendMenu) {
       }
     },
     {
-      label: 'Close', click: function () {
+      label: 'Quit', click: function () {
         log.debug("Close window via tray");
         win.close();
       }
     },
   ]);
 
+  // apply menu to tray
   const contextMenu = Menu.buildFromTemplate(menuTemplate);
   tray.setContextMenu(contextMenu)
 }
@@ -134,50 +220,11 @@ function createTray() {
   });
 }
 
-ipcMain.on('updateTrayMenu', (event, lights) => {
-  var presetMenu = [];
-  for (let index = 0; index < lights.length; index++) {
-    //console.log(lights[index].presets);
-    if (lights[index].online) {
-      presetMenu.push({
-        label: lights[index].name,
-        enabled: false,
-      });
-
-      // add brightness submenu
-      presetMenu.push({
-        label: 'Brightness: ' + (lights[index].on ? (Math.round(lights[index].brightness / 2.55) + '%') : 'OFF'),
-        submenu: [
-          { label: lights[index].on ? 'OFF' : 'ON',  click: () => win.webContents.send('set-on-off', lights[index].ip, 2)},
-          { label: '20%', click: () => win.webContents.send('set-brightness', lights[index].ip, 51)},
-          { label: '40%', click: () => win.webContents.send('set-brightness', lights[index].ip, 102)},
-          { label: '60%', click: () => win.webContents.send('set-brightness', lights[index].ip, 153)},
-          { label: '80%', click: () => win.webContents.send('set-brightness', lights[index].ip, 204)},
-          { label: '100%',click: () => win.webContents.send('set-brightness', lights[index].ip, 255)},
-        ]
-      });
-
-      // add presets menu
-      if (lights[index].presets && lights[index].presets.length > 0) {
-        lights[index].presets.forEach((preset, i) => {
-
-          // only include presets with quickload label
-          if (preset.icon) {
-            presetMenu.push({
-              label: (preset.icon ? (preset.icon + ' ') : '') + preset.name,
-              type: "checkbox",
-              checked: lights[index].preset == i,
-              click: () => win.webContents.send('set-preset', lights[index].ip, i),
-            });
-            hasQuickloads = true;
-          }
-        });
-
-        presetMenu.push({ type: 'separator' });
-      }
-    }
+// add listener
+ipcMain.on('update-tray-menu', (event, lights) => {
+  if (win) {
+    createTrayMenu(lights);
   }
-  createTrayMenu(presetMenu);
 })
 
 // read settings from localstorage
@@ -208,6 +255,9 @@ function checkWorker() {
 function checkTray() {
   if (autostarted) {
     createTray();
+    if (settings[0].value) {
+      win.hide();
+    }
   } else {
     if (settings !== null) {
       // show tray only if enabled
