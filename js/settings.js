@@ -1,6 +1,7 @@
 document.getElementById("autostart").addEventListener("change", toggleAutostart);
 document.getElementById("autostartHidden").addEventListener("change", toggleAutostart);
 document.getElementById("tray").addEventListener("change", toggleTray);
+document.getElementById("minimizeToTray").addEventListener("change", toggleTray);
 document.getElementById("autoTurnOnOnlyAtAutostart").addEventListener("change", toggleLightAutostartOnlyAtAutostart);
 
 // create settings json
@@ -31,6 +32,7 @@ function toggleAutostart() {
 
     if (document.getElementById("autostartHidden").checked) {
         document.getElementById("tray").checked = true;
+        toggleTray();
         let settings = JSON.parse(localStorage.getItem("settings"));
         if (settings[1].value !== document.getElementById("tray").checked) {
             document.getElementById("restartRequired").style.display = "block";
@@ -61,10 +63,19 @@ function toggleAutostart() {
 // enabels or disables the tray icon of wled-gui
 function toggleTray() {
     if (document.getElementById("autostartHidden").checked) {
-        this.checked = true;
+        document.getElementById("tray").checked = true;
+    }
+    if (document.getElementById("tray").checked) {
+        document.getElementById("minimizeToTray").disabled = false;
+    } else {
+        document.getElementById("minimizeToTray").checked = false;
+        document.getElementById("minimizeToTray").disabled = true;
     }
     let settings = JSON.parse(localStorage.getItem("settings"));
-    if (settings[1].checked !== this.checked && !document.getElementById("autostartHidden").checked) {
+    if (
+      settings[1].value !== document.getElementById("tray").checked && !document.getElementById("autostartHidden").checked
+      || settings[3].value !== document.getElementById("minimizeToTray").checked
+    ) {
         document.getElementById("restartRequired").style.display = "block";
     }
     saveSettings();
@@ -139,20 +150,25 @@ function toggleLightAutostartOnlyAtAutostart() {
 function saveSettings() {
     log.verbose("saves settings into local storage");
     let settings = [
-        {
+        { // 0
             id: "autostartHidden",
             type: "checkbox",
             value: document.getElementById("autostartHidden").checked
         },
-        {
+        { // 1
             id: "tray",
             type: "checkbox",
             value: document.getElementById("tray").checked
         },
-        {
+        { // 2
             id: "autoTurnOnOnlyAtAutostart",
             type: "checkbox",
             value: document.getElementById("autoTurnOnOnlyAtAutostart").checked
+        },
+        { // 3
+            id: "minimizeToTray",
+            type: "checkbox",
+            value: document.getElementById("minimizeToTray").checked
         }
     ]
     log.debug(settings);

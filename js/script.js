@@ -50,6 +50,9 @@ function openRelease() {
 
 // Shows all Lighs in main page
 function showLights() {
+    if (!document.getElementById("lights")) {
+      return;
+    }
     var lights = JSON.parse(localStorage.getItem("lights"));
     var txt = "";
     var oldTxt = document.getElementById("lights").innerHTML;
@@ -97,6 +100,7 @@ function showLightsDel() {
 
 // get the status of lights
 // check if on or off and connection to them
+// update tray menu
 function getStatus() {
     var lights = JSON.parse(localStorage.getItem("lights"));
     for (let index = 0; index < lights.length; index++) {
@@ -113,19 +117,20 @@ function getStatus() {
             lights[index].brightness = json.state.bri;
             localStorage.setItem("lights", JSON.stringify(lights));
             showLights();
-            ipcRenderer.send('updateTrayMenu', lights);
+            ipcRenderer.send('update-tray-menu', lights);
         };
         xhr.onerror = function () {
             lights[index].online = false;
             localStorage.setItem("lights", JSON.stringify(lights));
             showLights();
-            ipcRenderer.send('updateTrayMenu', lights);
+            ipcRenderer.send('update-tray-menu', lights);
         }
         xhr.send();
     }
 }
 
-// get presets
+// get the available presets of lights
+// update tray menu
 function getPresets() {
     var lights = JSON.parse(localStorage.getItem("lights"));
     for (let index = 0; index < lights.length; index++) {
@@ -141,8 +146,8 @@ function getPresets() {
               icon: preset.ql
             }});
             localStorage.setItem("lights", JSON.stringify(lights));
-            //createPresetsTrayMenu();
-            ipcRenderer.send('updateTrayMenu', lights);
+
+            ipcRenderer.send('update-tray-menu', lights);
         };
         xhr.onerror = function () {
         }
@@ -150,55 +155,32 @@ function getPresets() {
     }
 }
 
-function createPresetsTrayMenu() {
-  var lights = JSON.parse(localStorage.getItem("lights"));
-  var presetMenu = [];
-  for (let index = 0; index < lights.length; index++) {
-    //console.log(lights[index].presets);
-    if (lights[index].presets && lights[index].presets.length > 0) {
-      let hasQuickloads = false;
-      lights[index].presets.forEach((preset, i) => {
-        if (preset.icon) {
-          presetMenu.push({
-            label: (preset.icon ? (preset.icon + ' ') : '') + preset.name
-          });
-          hasQuickloads = true;
-        }
-      });
-
-      if (hasQuickloads) {
-        presetMenu.push({ type: 'separator' });
-      }
-    }
-  };
-  //console.log("1");
-  //ipcRenderer.send('createTrayMenu', presetMenu);
-  //console.log("2");
-}
-
+// listener for main thread call to set brightness
 ipcRenderer.on('set-brightness', (event, ip, br) => {
   let xhr = new XMLHttpRequest();
   xhr.open('GET', 'http://' + ip + "/win&A=" + br, true);
   xhr.onload = function () {
-    sync();
+    getStatus();
   };
   xhr.send();
 });
 
+// listener for main thread call to set preset
 ipcRenderer.on('set-preset', (event, ip, ps) => {
   let xhr = new XMLHttpRequest();
   xhr.open('GET', 'http://' + ip + "/win&PL=" + ps, true);
   xhr.onload = function () {
-    sync();
+    getStatus();
   };
   xhr.send();
 });
 
+// listener for main thread call to set on/off (0=Off, 1=On, 2=Toggle)
 ipcRenderer.on('set-on-off', (event, ip, onOff) => {
   let xhr = new XMLHttpRequest();
   xhr.open('GET', 'http://' + ip + "/win&T=" + onOff, true);
   xhr.onload = function () {
-    sync();
+    getStatus();
   };
   xhr.send();
 });
@@ -245,16 +227,30 @@ function remindLater() {
     localStorage.setItem('remindLaterTime', Date.now());
 }
 
-var syncCount = 5;
-function sync() {
-  syncCount++;
-
-  if (syncCount > 4) {
-    getPresets();
-    syncCount = 0;
-  } else {
-    getStatus();
+// continuous sync to keep the status up to date
+if (typeof syncRunning === 'undefined' || syncRunning === null) {
+  var syncRunning = false;
+}
+function startSync() {
+  if (syncRunning !== false) {
+    log.warn('%cSYNC ALREADY RUNNING!');
+    return;
   }
 
-  setTimeout(sync, 1000);
+  syncRunning = true;
+  let syncCount = 4;
+
+  function sync(){
+    syncCount++;
+
+    if (syncCount > 4) {
+      syncCount = 0;
+      getPresets();
+    } else {
+      getStatus();
+    }
+
+    setTimeout(sync, 1000);
+  }
+  sync();
 }

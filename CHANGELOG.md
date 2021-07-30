@@ -1,5 +1,10 @@
 # WLED-GUI changelog
 
+## WLED-GUI version 0.7.2
+- added brightness control to tray menu
+- added presets control to tray menu
+- added option to minimize to tray
+
 ## WLED-GUI version 0.7.1
 - optimized update notification
 - added online mode
